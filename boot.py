@@ -6,9 +6,9 @@ station = network.WLAN(network.STA_IF)
 
 if station.isconnected() == True:
     print("Already connected")
-
-station.active(True)
-station.connect(ssid, password)
+else:
+    station.active(True)
+    station.connect(ssid, password)
 
 while station.isconnected() == False:
     pass
@@ -19,3 +19,4 @@ print(station.ifconfig())
 
 #import webrepl
 #
+

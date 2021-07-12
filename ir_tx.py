@@ -1,31 +1,16 @@
 # __init__.py Nonblocking IR blaster
 # Runs on Pyboard D or Pyboard 1.x (not Pyboard Lite), ESP32 and RP2
-
 # Released under the MIT License (MIT). See LICENSE.
-
 # Copyright (c) 2020-2021 Peter Hinch
-
-print('imported')
+#
+# Stripped down to only work with esp32
 
 from sys import platform
-ESP32 = platform == 'esp32'  # Loboris not supported owing to RMT
-RP2 = platform == 'rp2'
-if ESP32:
-    from machine import Pin, PWM
-    from esp32 import RMT
-elif RP2:
-    from .rp2_rmt import RP2_RMT
-else:
-    from pyb import Pin, Timer  # Pyboard does not support machine.PWM
-
+from machine import Pin, PWM
+from esp32 import RMT
 from micropython import const
 from array import array
 from time import ticks_us, ticks_diff
-# import micropython
-# micropython.alloc_emergency_exception_buf(100)
-
-
-# Shared by NEC
 STOP = const(0)  # End of data
 
 # IR abstract base class. Array holds periods in 濞撶捈 between toggling 36/38KHz
@@ -36,30 +21,11 @@ class IR:
     _space = 0  # Duty ratio that causes IRLED to be off
     timeit = False  # Print timing info
 
-    @classmethod
-    def active_low(cls):
-        if ESP32:
-            raise ValueError('Cannot set active low on ESP32')
-        cls._active_high = False
-        cls._space = 100
-
     def __init__(self, pin, cfreq, asize, duty, verbose):
-        if ESP32:
-            self._rmt = RMT(0, pin=pin, clock_div=80, carrier_freq=cfreq,
-                            carrier_duty_percent=duty)  # 1濞撶捈 resolution
-        elif RP2:  # PIO-based RMT-like device
-            self._rmt = RP2_RMT(pin_pulse=None, carrier=(pin, cfreq, duty))  # 1濞撶捈 resolution
-        else:  # Pyboard
-            if not IR._active_high:
-                duty = 100 - duty
-            tim = Timer(2, freq=cfreq)  # Timer 2/pin produces 36/38/40KHz carrier
-            self._ch = tim.channel(1, Timer.PWM, pin=pin)
-            self._ch.pulse_width_percent(self._space)  # Turn off IR LED
-            # Pyboard: 0 <= pulse_width_percent <= 100
-            self._duty = duty
-            self._tim = Timer(5)  # Timer 5 controls carrier on/off times
+        
+        self._rmt = RMT(0, pin=pin, clock_div=80, carrier_freq=cfreq, carrier_duty_percent=duty)  # 1us resolution
         self._tcb = self._cb  # Pre-allocate
-        self._arr = array('H', 0 for _ in range(asize))  # on/off times (濞撶捈)
+        self._arr = array('H', 0 for _ in range(asize))  # on/off times (us)
         self._mva = memoryview(self._arr)
         # Subclass interface
         self.verbose = verbose
@@ -94,19 +60,11 @@ class IR:
         self.trigger()  # Initiate transmission
         if self.timeit:
             dt = ticks_diff(ticks_us(), t)
-            print('Time = {}濞撶捈'.format(dt))
+            print('Time = {}us'.format(dt))
 
     # Subclass interface
-    def trigger(self):  # Used by NEC to initiate a repeat frame
-        if ESP32:
-            self._rmt.write_pulses(tuple(self._mva[0 : self.aptr]), start = 1)
-        elif RP2:
-            self.append(STOP)
-            self._rmt.send(self._arr)
-        else:
-            self.append(STOP)
-            self.aptr = 0  # Reset pointer
-            self._cb(self._tim)  # Initiate physical transmission.
+    def trigger(self):  # Used by NEC to initiate a repeat frame        
+        self._rmt.write_pulses(tuple(self._mva[0 : self.aptr]), start = 1)
 
     def append(self, *times):  # Append one or more time peiods to ._arr
         for t in times:
@@ -133,3 +91,4 @@ class Player(IR):
             self._arr[x] = t
         self.aptr = x + 1
         self.trigger()
+
